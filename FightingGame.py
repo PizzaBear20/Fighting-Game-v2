@@ -47,15 +47,15 @@ class Character:
         )
     
     def train(self, attribute):
-        if self.mana > 10:
+        if self.mana < 10:
             range = 101
-        elif self.mana > 20:
+        elif self.mana < 20:
             range = 91
-        elif self.mana > 30:
+        elif self.mana < 30:
             range = 81
-        elif self.mana > 40:
+        elif self.mana < 40:
             range = 71
-        elif self.mana > 50:
+        elif self.mana < 50:
             range = 61
         else:
             range = 201
@@ -177,7 +177,7 @@ def trainCharacterCall(name, attribute):
     if name in characters:
         resultMessage = characters[name].train(attribute)
         messagebox.showinfo("Training Results", resultMessage)
-        updateStats
+        updateStats()
     else:
         messagebox.showerror("Error", f"Character '{name}' not found")
 
@@ -186,7 +186,6 @@ def trainAllCharactersCall(attribute):
         character.train(attribute)
     updateStats()
 
-# display character stats call
 def displayStatsCall(name):
     if name in characters:
         stats = characters[name].displayStats()
@@ -387,7 +386,7 @@ historyText = tk.Text(root,width=40,height=24)
 historyText.grid(row=1,column=4,rowspan=4,columnspan=3,padx=5,pady=5)
 historyText.config(state=tk.DISABLED)
 
-powerLevelsText = tk.Text(root,width=40,height=15)
+powerLevelsText = tk.Text(root,width=40,height=21)
 powerLevelsText.grid(row=6,column=0,columnspan=2,padx=5,pady=5)
 powerLevelsText.config(state=tk.DISABLED)
 
