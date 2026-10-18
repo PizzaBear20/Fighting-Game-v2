@@ -47,19 +47,20 @@ class Character:
         )
     
     def train(self, attribute):
+        # more mana = better chance of learning a special move
         if self.mana < 10:
-            range = 101
+            chanceRange = 101
         elif self.mana < 20:
-            range = 91
+            chanceRange = 91
         elif self.mana < 30:
-            range = 81
+            chanceRange = 81
         elif self.mana < 40:
-            range = 71
+            chanceRange = 71
         elif self.mana < 50:
-            range = 61
+            chanceRange = 61
         else:
-            range = 201
-        specialAbilityChance = random.randrange(1,range)
+            chanceRange = 51
+        specialAbilityChance = random.randrange(1,chanceRange)
         if specialAbilityChance == 1:
 
             prefixes = [
@@ -172,7 +173,23 @@ for name in names:
     character.stats()
     characters[name] = character
 
-# train character call. attribute must be all lowercase or random
+# Attribute names people can type -> the real attribute name
+attributeNames = {
+    "health": "health",
+    "strength": "strength",
+    "speed": "speed",
+    "mana": "mana",
+    "battleiq": "battleIQ",
+    "battle iq": "battleIQ",
+    "iq": "battleIQ",
+    "random": "random",
+}
+
+# Turns typed text like "Battle IQ" into "battleIQ". Returns None if it isn't an attribute
+def cleanAttribute(text):
+    return attributeNames.get(text.strip().lower())
+
+# train character call. attribute must already be cleaned with cleanAttribute
 def trainCharacterCall(name, attribute):
     if name in characters:
         resultMessage = characters[name].train(attribute)
@@ -182,7 +199,7 @@ def trainCharacterCall(name, attribute):
         messagebox.showerror("Error", f"Character '{name}' not found")
 
 def trainAllCharactersCall(attribute):
-    for character in characters.values():   
+    for character in characters.values():
         character.train(attribute)
     updateStats()
 
@@ -193,77 +210,484 @@ def displayStatsCall(name):
     else:
         messagebox.showerror("Error", f"Character '{name}' not found")
 
-#1v1 character fight
-def oneVOne(character1_name, character2_name):
-    character1 = characters[character1_name]
-    character2 = characters[character2_name]
+# Fight settings
+HP_PER_HEALTH = 10  # each health point is worth 10 HP so fights last long enough to watch
+MAX_ROUNDS = 300    # if nobody is knocked out by then, whoever has more HP wins
 
-    # Initial stats
-    character1Health = character1.health
-    character2Health = character2.health
-    character1Speed = character1.speed
-    character2Speed = character2.speed
-    character1BattleIQ = character1.battleIQ
-    character2BattleIQ = character2.battleIQ
-    character1AttackStrength = (0.25 * float(character1BattleIQ)) + float(character1.strength)
-    character2AttackStrength = (0.25 * float(character2BattleIQ)) + float(character2.strength)
-    number = character1Speed + character2Speed
+# Works out the whole fight ahead of time. The fight window then plays it back as an animation
+def simulateFight(character1, character2):
+    fighters = []
+    for character in (character1, character2):
+        health = character.health
+        speed = character.speed
+        attack = (0.25 * float(character.battleIQ)) + float(character.strength)
 
-    print(f"{character1_name} stats before special moves:")
-    print(f"Health: {character1Health}, Speed: {character1Speed}, Strength: {character1AttackStrength}")
-    print(f"{character2_name} stats before special moves:")
-    print(f"Health: {character2Health}, Speed: {character2Speed}, Strength: {character2AttackStrength}")
+        # Apply special moves
+        for move in character.specialMoves:
+            if move['type'] == 'Speed':
+                speed += move['bonus']
+            elif move['type'] == 'Strength':
+                attack += move['bonus']
+            elif move['type'] == 'Health':
+                health += move['bonus']
 
-    # Apply special moves
-    for move in character1.specialMoves:
-        if move['type'] == 'Speed':
-            character1Speed += move['bonus']
-        elif move['type'] == 'Strength':
-            character1AttackStrength += move['bonus']
-        elif move['type'] == 'Health':
-            character1Health += move['bonus']
+        fighters.append({
+            'name': character.name,
+            'maxHP': health * HP_PER_HEALTH,
+            'attack': attack,
+            'speed': speed,
+            'moves': list(character.specialMoves),
+        })
 
-    for move in character2.specialMoves:
-        if move['type'] == 'Speed':
-            character2Speed += move['bonus']
-        elif move['type'] == 'Strength':
-            character2AttackStrength += move['bonus']
-        elif move['type'] == 'Health':
-            character2Health += move['bonus']
+    hp = [fighters[0]['maxHP'], fighters[1]['maxHP']]
+    totalSpeed = fighters[0]['speed'] + fighters[1]['speed']
+    events = []
 
-    print(f"{character1_name} stats after special moves:")
-    print(f"Health: {character1Health}, Speed: {character1Speed}, Strength: {character1AttackStrength}")
-    print(f"{character2_name} stats after special moves:")
-    print(f"Health: {character2Health}, Speed: {character2Speed}, Strength: {character2AttackStrength}")
-
-    maxIterations = 1000
-    iteration = 0
-    fighting = True
-    while fighting and iteration < maxIterations:
-        attackChance1 = random.randrange(1, number + 1)
-        attackChance2 = random.randrange(1, number + 1)
-        if character1Health <= 0 or character2Health <= 0:
-            fighting = False
+    # Each round one fighter attacks. The faster you are, the more often you get the attack
+    while hp[0] > 0 and hp[1] > 0 and len(events) < MAX_ROUNDS:
+        if random.randrange(1, totalSpeed + 1) <= fighters[0]['speed']:
+            attacker = 0
         else:
-            if attackChance1 <= character1Speed:
-                character2Health -= character1AttackStrength
-            if attackChance2 > character1Speed:
-                character1Health -= character2AttackStrength
-        iteration += 1
+            attacker = 1
+        defender = 1 - attacker
+        damage = max(1, round(fighters[attacker]['attack'] * random.uniform(0.8, 1.2)))
+        hp[defender] = max(0, hp[defender] - damage)
+        events.append({'attacker': attacker, 'damage': damage, 'hp': list(hp)})
 
-    # Compare points
-    if character1Health > character2Health:
-        historyEvent = f"{character1_name} has won the fight against {character2_name}"
-        messagebox.showinfo("Fight Results", historyEvent)
-        documentFight(historyEvent)
-    elif character2Health > character1Health:
-        historyEvent = f"{character2_name} has won the fight against {character1_name}"
-        messagebox.showinfo("Fight Results", historyEvent)
-        documentFight(historyEvent)
+    if hp[0] > hp[1]:
+        winner = 0
+    elif hp[1] > hp[0]:
+        winner = 1
     else:
-        historyEvent = f"The fight between {character1_name} and {character2_name} ended in a draw"
-        messagebox.showinfo("Fight Results", historyEvent)
+        winner = None
+
+    return {
+        'fighters': fighters,
+        'events': events,
+        'winner': winner,
+        'knockout': hp[0] == 0 or hp[1] == 0,
+    }
+
+# A window that shows the fight happening
+class FightWindow:
+    WIDTH = 760
+    HEIGHT = 420
+    GROUND = 340
+    BAR_WIDTH = 300
+    COLORS = ["#4da3ff", "#ff6b6b"]
+    KO_COLOR = "#7d7d8c"
+    SKY = "#20243a"
+
+    def __init__(self, parent, character1, character2):
+        self.result = simulateFight(character1, character2)
+        self.fighters = self.result['fighters']
+        self.events = self.result['events']
+
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"{character1.name} vs {character2.name}")
+        self.window.resizable(False, False)
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+
+        self.canvas = tk.Canvas(self.window, width=self.WIDTH, height=self.HEIGHT, bg=self.SKY, highlightthickness=0)
+        self.canvas.grid(row=0, column=0, columnspan=3)
+
+        self.speedScale = tk.Scale(self.window, from_=1, to=5, orient=tk.HORIZONTAL, label="Speed")
+        self.speedScale.set(2)
+        self.speedScale.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+
+        self.skipButton = tk.Button(self.window, text="Skip to End", command=self.skip)
+        self.skipButton.grid(row=1, column=1, padx=5, pady=5)
+
+        closeButton = tk.Button(self.window, text="Close", command=self.close)
+        closeButton.grid(row=1, column=2, padx=5, pady=5, sticky="e")
+
+        self.logText = tk.Text(self.window, width=90, height=8)
+        self.logText.grid(row=2, column=0, columnspan=3, padx=5, pady=5)
+        self.logText.config(state=tk.DISABLED)
+
+        # Where each fighter is and what they are doing
+        self.homeX = [270, 490]
+        self.x = [-60, self.WIDTH + 60]  # start off screen and walk in
+        self.facing = [1, -1]            # 1 = facing right, -1 = facing left
+        self.poses = ["stand", "stand"]  # stand, punch, hit, down, win
+        self.flash = [False, False]
+        self.shownHP = [self.fighters[0]['maxHP'], self.fighters[1]['maxHP']]
+
+        self.eventsLogged = 0
+        self.recorded = False
+        self.afterId = None
+
+        self.drawArena()
+        self.drawHealthBars()
+        self.drawFighter(0)
+        self.drawFighter(1)
+
+        self.animation = self.playFight()
+        self.step()
+
+    # Runs the next frame of the animation. playFight "yields" how many milliseconds to wait
+    def step(self):
+        try:
+            delay = next(self.animation)
+        except StopIteration:
+            self.afterId = None
+            return
+        self.afterId = self.window.after(max(1, int(delay / self.speedScale.get())), self.step)
+
+    def stopAnimation(self):
+        if self.afterId is not None:
+            self.window.after_cancel(self.afterId)
+            self.afterId = None
+        self.animation.close()
+
+    # ---------- drawing ----------
+
+    def drawArena(self):
+        c = self.canvas
+        # sky fades a little lighter towards the floor
+        bands = ["#20243a", "#23283f", "#262c45", "#29304b", "#2c3451", "#2f3857"]
+        bandHeight = self.GROUND / len(bands)
+        for i, color in enumerate(bands):
+            c.create_rectangle(0, i * bandHeight, self.WIDTH, (i + 1) * bandHeight + 1, fill=color, outline="")
+        c.create_rectangle(0, self.GROUND, self.WIDTH, self.HEIGHT, fill="#3b3b52", outline="")
+        c.create_line(0, self.GROUND, self.WIDTH, self.GROUND, fill="#5a5a7a", width=3)
+        for lineX in range(0, self.WIDTH, 80):
+            c.create_line(lineX, self.GROUND + 10, lineX - 40, self.HEIGHT, fill="#44445e", width=2)
+
+    def drawHealthBars(self):
+        c = self.canvas
+        c.delete("hud")
+        for i in (0, 1):
+            fighter = self.fighters[i]
+            if i == 0:
+                barLeft = 30
+            else:
+                barLeft = self.WIDTH - 30 - self.BAR_WIDTH
+            barRight = barLeft + self.BAR_WIDTH
+            percent = max(0, self.shownHP[i]) / fighter['maxHP']
+
+            if percent > 0.5:
+                barColor = "#4cd964"
+            elif percent > 0.25:
+                barColor = "#ffcc00"
+            else:
+                barColor = "#ff3b30"
+
+            c.create_rectangle(barLeft, 40, barRight, 62, fill="#111320", outline="#cfd3e6", width=2, tags="hud")
+            fillWidth = (self.BAR_WIDTH - 4) * percent
+            if fillWidth > 0:
+                # player 1's bar drains towards the left, player 2's towards the right
+                if i == 0:
+                    c.create_rectangle(barLeft + 2, 42, barLeft + 2 + fillWidth, 60, fill=barColor, outline="", tags="hud")
+                else:
+                    c.create_rectangle(barRight - 2 - fillWidth, 42, barRight - 2, 60, fill=barColor, outline="", tags="hud")
+
+            hpText = f"HP {round(max(0, self.shownHP[i]))} / {fighter['maxHP']}"
+            if i == 0:
+                c.create_text(barLeft, 28, text=fighter['name'], anchor="w", fill=self.COLORS[i], font=("Helvetica", 15, "bold"), tags="hud")
+                c.create_text(barRight, 28, text=hpText, anchor="e", fill="#cfd3e6", font=("Helvetica", 11), tags="hud")
+            else:
+                c.create_text(barRight, 28, text=fighter['name'], anchor="e", fill=self.COLORS[i], font=("Helvetica", 15, "bold"), tags="hud")
+                c.create_text(barLeft, 28, text=hpText, anchor="w", fill="#cfd3e6", font=("Helvetica", 11), tags="hud")
+
+    # Draws a stick figure fighter in their current pose
+    def drawFighter(self, i):
+        c = self.canvas
+        tag = f"fighter{i}"
+        c.delete(tag)
+
+        x = self.x[i]
+        g = self.GROUND
+        f = self.facing[i]
+        pose = self.poses[i]
+
+        color = self.COLORS[i]
+        if pose == "down":
+            color = self.KO_COLOR
+        if self.flash[i]:
+            color = "#ffffff"
+
+        def line(*points):
+            c.create_line(*points, fill=color, width=6, capstyle=tk.ROUND, joinstyle=tk.ROUND, tags=tag)
+
+        def circle(centerX, centerY, radius):
+            c.create_oval(centerX - radius, centerY - radius, centerX + radius, centerY + radius, fill=color, outline=color, tags=tag)
+
+        # shadow on the floor
+        c.create_oval(x - 38, g - 6, x + 38, g + 6, fill="#2a2a3d", outline="", tags=tag)
+
+        if pose == "down":
+            line(x - f * 40, g - 12, x + f * 10, g - 12)    # body
+            line(x + f * 10, g - 12, x + f * 52, g - 4)     # legs
+            line(x + f * 10, g - 12, x + f * 46, g - 24)
+            line(x - f * 28, g - 12, x - f * 12, g - 32)    # arm
+            circle(x - f * 56, g - 15, 15)                  # head
+            c.create_text(x, g - 60, text=self.fighters[i]['name'], fill=self.KO_COLOR, font=("Helvetica", 12, "bold"), tags=tag)
+            return
+
+        if pose == "hit":
+            lean = -f * 10
+        elif pose == "punch":
+            lean = f * 8
+        else:
+            lean = 0
+
+        hipY = g - 50
+        shoulderX = x + lean
+        shoulderY = g - 88
+        armY = shoulderY + 4
+
+        # legs
+        if pose == "punch":
+            feet = [x + f * 30, x - f * 28]
+        else:
+            feet = [x + f * 18, x - f * 16]
+        for footX in feet:
+            line(x, hipY, (x + footX) / 2, hipY + 26, footX, g)
+
+        # body and head
+        line(x, hipY, shoulderX, shoulderY)
+        circle(shoulderX + lean * 0.4, shoulderY - 22, 15)
+
+        # arms
+        if pose == "punch":
+            line(shoulderX, armY, shoulderX + f * 60, armY - 2)
+            circle(shoulderX + f * 62, armY - 2, 8)
+            line(shoulderX, armY, shoulderX + f * 8, armY + 22, shoulderX + f * 20, armY + 4)
+            circle(shoulderX + f * 21, armY + 3, 6)
+        elif pose == "win":
+            line(shoulderX, armY, shoulderX + 24, armY - 18, shoulderX + 32, armY - 46)
+            circle(shoulderX + 32, armY - 48, 7)
+            line(shoulderX, armY, shoulderX - 24, armY - 18, shoulderX - 32, armY - 46)
+            circle(shoulderX - 32, armY - 48, 7)
+        elif pose == "hit":
+            line(shoulderX, armY, shoulderX - f * 22, armY + 14, shoulderX - f * 36, armY - 4)
+            line(shoulderX, armY, shoulderX - f * 12, armY + 26, shoulderX - f * 28, armY + 30)
+        else:
+            line(shoulderX, armY, shoulderX + f * 18, armY + 20, shoulderX + f * 30, armY - 2)
+            circle(shoulderX + f * 31, armY - 3, 7)
+            line(shoulderX, armY, shoulderX + f * 6, armY + 24, shoulderX + f * 20, armY + 8)
+            circle(shoulderX + f * 21, armY + 7, 6)
+
+        c.create_text(x, g - 150, text=self.fighters[i]['name'], fill=self.COLORS[i], font=("Helvetica", 12, "bold"), tags=tag)
+
+    def announce(self, text, color="#ffd34d"):
+        c = self.canvas
+        c.delete("announce")
+        c.create_text(self.WIDTH / 2 + 3, 98, text=text, fill="#000000", font=("Helvetica", 34, "bold"), tags="announce")
+        c.create_text(self.WIDTH / 2, 95, text=text, fill=color, font=("Helvetica", 34, "bold"), tags="announce")
+
+    def log(self, text):
+        self.logText.config(state=tk.NORMAL)
+        self.logText.insert(tk.END, text + "\n")
+        self.logText.see(tk.END)
+        self.logText.config(state=tk.DISABLED)
+
+    def logEvent(self, event):
+        attacker = self.fighters[event['attacker']]['name']
+        defenderIndex = 1 - event['attacker']
+        defender = self.fighters[defenderIndex]['name']
+        hpLeft = event['hp'][defenderIndex]
+        if hpLeft == 0:
+            self.log(f"{attacker} hits {defender} for {event['damage']} damage. {defender} is knocked out!")
+        else:
+            self.log(f"{attacker} hits {defender} for {event['damage']} damage ({hpLeft} HP left)")
+        self.eventsLogged += 1
+
+    # ---------- animation ----------
+
+    # The whole fight, start to finish. Each "yield" is a pause in milliseconds between frames
+    def playFight(self):
+        name1 = self.fighters[0]['name']
+        name2 = self.fighters[1]['name']
+
+        # fighters walk in
+        startX = list(self.x)
+        frames = 30
+        for frame in range(1, frames + 1):
+            for i in (0, 1):
+                self.x[i] = startX[i] + (self.homeX[i] - startX[i]) * frame / frames
+                self.drawFighter(i)
+            yield 25
+
+        self.announce(f"{name1}  VS  {name2}")
+        for fighter in self.fighters:
+            self.log(f"{fighter['name']}: {fighter['maxHP']} HP, {fighter['attack']:.1f} attack, {fighter['speed']} speed")
+        yield 1000
+
+        # special moves power up
+        for i in (0, 1):
+            moves = self.fighters[i]['moves']
+            for move in moves[:3]:
+                yield from self.powerUp(i, move)
+            if len(moves) > 3:
+                self.log(f"...and {len(moves) - 3} more special moves")
+
+        self.announce("FIGHT!", "#ff5c5c")
+        yield 700
+        self.canvas.delete("announce")
+
+        for event in self.events:
+            yield from self.playEvent(event)
+
+        yield from self.playEnding()
+
+    def powerUp(self, i, move):
+        c = self.canvas
+        x = self.x[i]
+        g = self.GROUND
+        self.log(f"{self.fighters[i]['name']} powers up with {move['name']} (+{move['bonus']} {move['type']})")
+        c.create_text(x, g - 198, text=move['name'], fill="#ffffff", font=("Helvetica", 14, "bold"), tags="temp")
+        c.create_text(x, g - 180, text=f"+{move['bonus']} {move['type']}", fill="#ffd34d", font=("Helvetica", 12), tags="temp")
+        for frame in range(16):
+            c.delete("aura")
+            size = 40 + (frame % 8) * 4
+            c.create_oval(x - size, g - 140 - frame % 8, x + size, g + 8, outline=self.COLORS[i], width=3, tags=("aura", "temp"))
+            c.tag_lower("aura", f"fighter{i}")
+            yield 45
+        c.delete("temp")
+
+    def playEvent(self, event):
+        c = self.canvas
+        attacker = event['attacker']
+        defender = 1 - attacker
+        g = self.GROUND
+
+        # attacker dashes in and throws a punch
+        attackStart = self.x[attacker]
+        target = self.x[defender] - self.facing[attacker] * 80
+        frames = 7
+        for frame in range(1, frames + 1):
+            self.x[attacker] = attackStart + (target - attackStart) * frame / frames
+            if frame >= 4:
+                self.poses[attacker] = "punch"
+            self.drawFighter(attacker)
+            yield 25
+
+        # impact
+        self.poses[defender] = "hit"
+        self.flash[defender] = True
+        hitX = self.x[defender] + self.facing[defender] * 14
+        hitY = g - 86
+        for angle in range(8):
+            dx = [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][angle]
+            dy = [0, 0.7, 1, 0.7, 0, -0.7, -1, -0.7][angle]
+            c.create_line(hitX + dx * 8, hitY + dy * 8, hitX + dx * 22, hitY + dy * 22, fill="#ffdd57", width=3, tags=("spark", "temp"))
+        damageText = c.create_text(self.x[defender], g - 165, text=f"-{event['damage']}", fill="#ffdd57", font=("Helvetica", 22, "bold"), tags="temp")
+        self.logEvent(event)
+
+        defenderStart = self.x[defender]
+        startHP = self.shownHP[defender]
+        endHP = event['hp'][defender]
+        frames = 12
+        for frame in range(1, frames + 1):
+            if frame == 3:
+                self.flash[defender] = False
+            if frame == 4:
+                c.delete("spark")
+            # knocked back a little, then steps back in
+            if frame <= frames / 2:
+                knockback = frame * 3
+            else:
+                knockback = (frames - frame) * 3
+            self.x[defender] = defenderStart - self.facing[defender] * knockback
+            self.shownHP[defender] = startHP + (endHP - startHP) * frame / frames
+            c.move(damageText, 0, -3)
+            self.drawFighter(defender)
+            self.drawHealthBars()
+            yield 30
+        c.delete("temp")
+        self.x[defender] = defenderStart
+        if endHP > 0:
+            self.poses[defender] = "stand"
+            self.drawFighter(defender)
+
+        # attacker goes back to their spot
+        self.poses[attacker] = "stand"
+        returnStart = self.x[attacker]
+        frames = 8
+        for frame in range(1, frames + 1):
+            self.x[attacker] = returnStart + (self.homeX[attacker] - returnStart) * frame / frames
+            self.drawFighter(attacker)
+            yield 20
+        yield 150
+
+    def playEnding(self):
+        winner = self.result['winner']
+        if self.result['knockout']:
+            loser = 1 - winner
+            self.poses[loser] = "hit"
+            self.drawFighter(loser)
+            yield 250
+            self.poses[loser] = "down"
+            self.drawFighter(loser)
+            self.announce("K.O.!", "#ff5c5c")
+            yield 900
+        else:
+            self.announce("TIME!", "#ff5c5c")
+            yield 900
+        self.showResult()
+
+    # Puts everything in its final position, shows the winner and saves the result to history
+    def showResult(self):
+        self.canvas.delete("temp")
+        winner = self.result['winner']
+        for i in (0, 1):
+            self.x[i] = self.homeX[i]
+            self.flash[i] = False
+            self.shownHP[i] = self.events[-1]['hp'][i] if self.events else self.fighters[i]['maxHP']
+            if winner is None:
+                self.poses[i] = "stand"
+            elif i == winner:
+                self.poses[i] = "win"
+            elif self.result['knockout']:
+                self.poses[i] = "down"
+            else:
+                self.poses[i] = "stand"
+            self.drawFighter(i)
+        self.drawHealthBars()
+
+        if winner is None:
+            self.announce("DRAW!", "#cfd3e6")
+        else:
+            self.announce(f"{self.fighters[winner]['name']} WINS!")
+        self.skipButton.config(state=tk.DISABLED)
+        self.recordResult()
+
+    def recordResult(self):
+        if self.recorded:
+            return
+        self.recorded = True
+        name1 = self.fighters[0]['name']
+        name2 = self.fighters[1]['name']
+        winner = self.result['winner']
+        if winner == 0:
+            historyEvent = f"{name1} has won the fight against {name2}"
+        elif winner == 1:
+            historyEvent = f"{name2} has won the fight against {name1}"
+        else:
+            historyEvent = f"The fight between {name1} and {name2} ended in a draw"
+        if winner is not None:
+            if self.result['knockout']:
+                historyEvent += " by knockout"
+            else:
+                historyEvent += " on points"
+        self.log(historyEvent)
         documentFight(historyEvent)
+
+    def skip(self):
+        if self.recorded:
+            return
+        self.stopAnimation()
+        for event in self.events[self.eventsLogged:]:
+            self.logEvent(event)
+        self.showResult()
+
+    def close(self):
+        # closing early still counts the fight
+        self.stopAnimation()
+        self.recordResult()
+        self.window.destroy()
 
 def updatePowerLevels():
     powerLevelsText.config(state=tk.NORMAL)
@@ -273,7 +697,7 @@ def updatePowerLevels():
     for name, powerLevel in sortedPowerLevels:
         rank += 1
         powerLevelsText.insert(tk.END, f"{rank}. {name}: {powerLevel}\n")
-    powerLevelsText.config(state=tk.DISABLED)    
+    powerLevelsText.config(state=tk.DISABLED)
 
 def updateStats():
     statsText.config(state=tk.NORMAL)
@@ -296,15 +720,16 @@ def documentFight(historyEvent):
     historyText.config(state=tk.DISABLED)
 
 def onTrainButtonClick():
-    name = charNameEntry.get()
-    attribute = attributeEntry.get()
+    name = charNameEntry.get().strip()
+    attribute = cleanAttribute(attributeEntry.get())
+    if attribute is None:
+        messagebox.showerror("Error", "Attribute must be health, strength, speed, mana, battleIQ, or random")
+        return
     trainCharacterCall(name,attribute)
-    updateStats()
 
 def onShowStatsButtonClick():
-    name = charNameEntry.get()
+    name = charNameEntry.get().strip()
     displayStatsCall(name)
-    updateStats()
 
 def createCharacter(name):
     character = Character(name)
@@ -313,19 +738,43 @@ def createCharacter(name):
     updateStats()
 
 def onCreateCharacterClick():
-    name = createCharacterEntry.get()
+    name = createCharacterEntry.get().strip()
+    if name == "":
+        messagebox.showerror("Error", "Type a name for the new character")
+        return
+    if name in characters:
+        messagebox.showerror("Error", f"There is already a character named '{name}'")
+        return
     createCharacter(name)
+    createCharacterEntry.delete(0, tk.END)
 
 def onFightButtonClick():
-    character1 = oneVOneEntry1.get()
-    character2 = oneVOneEntry2.get()
-    oneVOne(character1,character2)
+    character1 = oneVOneEntry1.get().strip()
+    character2 = oneVOneEntry2.get().strip()
+    for name in (character1, character2):
+        if name not in characters:
+            messagebox.showerror("Error", f"Character '{name}' not found")
+            return
+    if character1 == character2:
+        messagebox.showerror("Error", "A character can't fight themselves")
+        return
+    FightWindow(root, characters[character1], characters[character2])
 
 def trainAllCharacters():
-    times = int(trainAllEntry1.get())
+    try:
+        times = int(trainAllEntry1.get())
+    except ValueError:
+        messagebox.showerror("Error", "Type how many times to train as a number")
+        return
+    if times < 1:
+        messagebox.showerror("Error", "Train at least 1 time")
+        return
+    attribute = cleanAttribute(trainAllEntry2.get())
+    if attribute is None:
+        messagebox.showerror("Error", "Attribute must be health, strength, speed, mana, battleIQ, or random")
+        return
     count = 1
     while count <= times:
-        attribute = trainAllEntry2.get()
         trainAllCharactersCall(attribute)
         count += 1
 
