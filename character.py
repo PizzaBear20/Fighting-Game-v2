@@ -2,36 +2,137 @@ import random
 
 # ---------- how a character looks ----------
 
-BUILDS = ["thin", "normal", "big"]
-HAIR_STYLES = ["none", "short", "spiky", "mohawk", "long", "afro", "ponytail"]
-HEADWEAR = ["none", "headband", "cap", "crown", "horns", "halo"]
-FACES = ["normal", "happy", "angry", "shades"]
-OUTFITS = ["none", "shirt", "gi", "armor"]
-CAPES = ["none", "scarf", "cape"]
+# The first choice in each list is the "plain" one
+BUILDS = ["normal", "thin", "big"]
+GLOVES = ["boxing", "wraps", "claws", "bare"]
+FACES = ["normal", "happy", "angry", "smirk", "fierce", "calm"]
+FACE_GEAR = ["none", "shades", "glasses", "visor", "eyepatch", "mask"]
+HAIR_STYLES = ["none", "buzz", "short", "swoop", "spiky", "mohawk", "long", "ponytail", "bun", "afro"]
+FACIAL_HAIR = ["none", "stubble", "mustache", "goatee", "beard"]
+HEADWEAR = ["none", "headband", "cap", "tophat", "wizard", "helmet", "crown", "horns", "halo"]
+OUTFITS = ["none", "shirt", "jacket", "gi", "armor", "robe"]
+PANTS = ["none", "shorts", "pants"]
+SHOES = ["none", "sneakers", "boots"]
+CAPES = ["none", "scarf", "cape", "wings", "batwings"]
+AURAS = ["none", "glow", "flame"]
 
 COLOR_CHOICES = [
     "#4da3ff", "#ff6b6b", "#4cd964", "#ffcc00", "#b47cff", "#ff9f43", "#00d2d3", "#ff6bcb",
     "#f5f6fa", "#a4b0be", "#2f3542", "#1e272e", "#8d6e63", "#c0392b", "#16a085", "#2c3e99",
 ]
+NEUTRALS = ["#f5f6fa", "#a4b0be", "#2f3542", "#1e272e"]
 SKIN_TONES = ["#ffe0bd", "#ffcd94", "#eac086", "#e0ac69", "#c68642", "#a5694f", "#8d5524", "#5c3a1e",
-              "#8fd16a", "#7fb3ff", "#c7c7d1"]
+              "#8fd16a", "#7fb3ff", "#c7c7d1", "#e05a4f"]
+HAIR_COLORS = ["#1e1e1e", "#4a2f1b", "#8d5524", "#e6c35c", "#d35400", "#f5f6fa"]
+EYE_COLORS = ["#1b1b24", "#4a2f1b", "#8d6e63", "#2e86de", "#16a085", "#7f8c8d", "#c0392b", "#8e44ad", "#ffcc00"]
+
+# A fighter with nothing extra on. Old saves use this for parts that didn't exist yet
+PLAIN_LOOK = {
+    "build": "normal", "bodyColor": "#4da3ff", "skinColor": "#e0ac69",
+    "gloveStyle": "boxing", "gloveColor": "#ff6b6b",
+    "face": "normal", "eyeColor": "#1b1b24", "faceGear": "none", "faceGearColor": "#1e272e",
+    "hairStyle": "short", "hairColor": "#4a2f1b", "facialHair": "none",
+    "headwear": "none", "headwearColor": "#ff6b6b",
+    "outfit": "none", "outfitColor": "#f5f6fa",
+    "pants": "none", "pantsColor": "#2c3e99",
+    "shoes": "none", "shoeColor": "#8d6e63",
+    "cape": "none", "capeColor": "#c0392b",
+    "aura": "none", "auraColor": "#4da3ff",
+}
+
+# Returns the plain choice (the first one) about plainChance of the time, otherwise one of the others
+def pickStyle(options, plainChance):
+    if random.random() < plainChance:
+        return options[0]
+    return random.choice(options[1:])
+
+# Picks a color for every part from a small color scheme, so the whole outfit goes together
+def randomColors(skinColor):
+    main, accent = random.sample(COLOR_CHOICES[:8], 2)
+    dark = random.choice(NEUTRALS)
+    bodyColor = random.choice([main, dark, skinColor])
+    # the clothes shouldn't be the same color as the body or they disappear
+    clothes = [color for color in (main, accent, dark) if color != bodyColor]
+    return {
+        "bodyColor": bodyColor,
+        "gloveColor": random.choice([main, accent, dark]),
+        "eyeColor": random.choice(EYE_COLORS[:6]),
+        "faceGearColor": random.choice([dark, main]),
+        "hairColor": random.choice(HAIR_COLORS * 2 + [main, accent]),
+        "headwearColor": random.choice([main, accent, dark]),
+        "outfitColor": random.choice(clothes),
+        "pantsColor": random.choice(clothes),
+        "shoeColor": random.choice([dark, "#f5f6fa", accent]),
+        "capeColor": random.choice([accent, main]),
+        "auraColor": random.choice([main, accent]),
+    }
 
 def randomLook():
-    return {
+    skinColor = random.choice(SKIN_TONES[:8])
+    look = {
         "build": random.choice(BUILDS),
-        "bodyColor": random.choice(COLOR_CHOICES[:8]),
-        "skinColor": random.choice(SKIN_TONES[:8]),
-        "gloveColor": random.choice(COLOR_CHOICES),
+        "skinColor": skinColor,
+        "gloveStyle": pickStyle(GLOVES, 0.6),
         "face": random.choice(FACES),
-        "hairStyle": random.choice(HAIR_STYLES),
-        "hairColor": random.choice(["#1e1e1e", "#4a2f1b", "#8d5524", "#e6c35c", "#d35400", "#f5f6fa"] + COLOR_CHOICES[:8]),
-        "headwear": random.choice(HEADWEAR[:3] + ["none", "none"]),
-        "headwearColor": random.choice(COLOR_CHOICES),
-        "outfit": random.choice(OUTFITS),
-        "outfitColor": random.choice(COLOR_CHOICES),
-        "cape": random.choice(CAPES + ["none"]),
-        "capeColor": random.choice(COLOR_CHOICES),
+        "faceGear": pickStyle(FACE_GEAR, 0.75),
+        "hairStyle": pickStyle(HAIR_STYLES, 0.15),
+        "facialHair": pickStyle(FACIAL_HAIR, 0.7),
+        "headwear": pickStyle(HEADWEAR, 0.5),
+        "outfit": pickStyle(OUTFITS, 0.2),
+        "pants": pickStyle(PANTS, 0.3),
+        "shoes": pickStyle(SHOES, 0.3),
+        "cape": pickStyle(CAPES, 0.55),
+        "aura": pickStyle(AURAS, 0.8),
     }
+    look.update(randomColors(skinColor))
+    return look
+
+
+# Ready-made styles. Anything a preset doesn't list goes back to plain, except the fighter
+# keeps their own skin, hair and eye color. A color of "skin" means "the same as the skin"
+PRESETS = [
+    ("Brawler", {"build": "big", "bodyColor": "skin", "face": "angry", "hairStyle": "buzz",
+                 "headwear": "headband", "headwearColor": "#ff6b6b", "gloveColor": "#ff6b6b",
+                 "pants": "shorts", "pantsColor": "#ff6b6b", "shoes": "sneakers", "shoeColor": "#f5f6fa"}),
+    ("Ninja", {"build": "thin", "bodyColor": "#1e272e", "face": "fierce", "hairStyle": "none",
+               "headwear": "headband", "headwearColor": "#c0392b", "faceGear": "mask", "faceGearColor": "#2f3542",
+               "outfit": "gi", "outfitColor": "#2f3542", "pants": "pants", "pantsColor": "#2f3542",
+               "gloveStyle": "wraps", "gloveColor": "#a4b0be", "cape": "scarf", "capeColor": "#c0392b"}),
+    ("Knight", {"build": "big", "bodyColor": "#2f3542", "outfit": "armor", "outfitColor": "#a4b0be",
+                "headwear": "helmet", "headwearColor": "#a4b0be", "gloveColor": "#a4b0be",
+                "pants": "pants", "pantsColor": "#2f3542", "shoes": "boots", "shoeColor": "#a4b0be",
+                "cape": "cape", "capeColor": "#2c3e99"}),
+    ("Wizard", {"build": "thin", "bodyColor": "#2c3e99", "face": "calm", "hairStyle": "long", "hairColor": "#f5f6fa",
+                "facialHair": "beard", "headwear": "wizard", "headwearColor": "#2c3e99",
+                "outfit": "robe", "outfitColor": "#2c3e99", "gloveStyle": "bare",
+                "aura": "glow", "auraColor": "#b47cff"}),
+    ("King", {"build": "big", "bodyColor": "#c0392b", "face": "smirk", "facialHair": "beard",
+              "headwear": "crown", "headwearColor": "#ffcc00", "outfit": "robe", "outfitColor": "#c0392b",
+              "gloveStyle": "bare", "shoes": "boots", "shoeColor": "#8d6e63", "cape": "cape", "capeColor": "#ffcc00"}),
+    ("Demon", {"skinColor": "#e05a4f", "bodyColor": "#1e272e", "face": "fierce", "eyeColor": "#ffcc00",
+               "hairStyle": "none", "headwear": "horns", "headwearColor": "#2f3542",
+               "gloveStyle": "claws", "gloveColor": "#1e272e", "pants": "pants", "pantsColor": "#1e272e",
+               "cape": "batwings", "capeColor": "#2f3542", "aura": "flame", "auraColor": "#ff6b6b"}),
+    ("Angel", {"bodyColor": "#f5f6fa", "face": "calm", "hairStyle": "long", "hairColor": "#e6c35c",
+               "headwear": "halo", "headwearColor": "#ffcc00", "outfit": "robe", "outfitColor": "#f5f6fa",
+               "gloveStyle": "bare", "cape": "wings", "capeColor": "#f5f6fa",
+               "aura": "glow", "auraColor": "#ffcc00"}),
+    ("Street", {"bodyColor": "skin", "face": "smirk", "hairStyle": "short", "faceGear": "shades",
+                "headwear": "cap", "headwearColor": "#4da3ff", "outfit": "jacket", "outfitColor": "#ff9f43",
+                "gloveStyle": "wraps", "gloveColor": "#f5f6fa", "pants": "pants", "pantsColor": "#2c3e99",
+                "shoes": "sneakers", "shoeColor": "#f5f6fa"}),
+]
+
+# Returns a copy of look dressed up as the preset
+def applyPreset(look, preset):
+    newLook = dict(PLAIN_LOOK)
+    for key in ("skinColor", "hairColor", "eyeColor"):
+        newLook[key] = look[key]
+    newLook.update(preset)
+    for key, value in newLook.items():
+        if value == "skin":
+            newLook[key] = newLook["skinColor"]
+    return newLook
 
 
 class Character:
@@ -238,10 +339,17 @@ class Character:
         character.mana = data["mana"]
         character.battleIQ = data["battleIQ"]
         character.specialMoves = data.get("specialMoves", [])
-        # start from a random look so anything missing from the save still has a value
-        for key, value in data.get("look", {}).items():
-            if key in character.look:
-                character.look[key] = value
+        savedLook = data.get("look")
+        if savedLook:
+            # parts that were added after this fighter was saved start out plain
+            character.look = dict(PLAIN_LOOK)
+            for key, value in savedLook.items():
+                if key in character.look:
+                    character.look[key] = value
+            # shades used to be a face. Now they're face gear
+            if character.look["face"] == "shades":
+                character.look["face"] = "normal"
+                character.look["faceGear"] = "shades"
         return character
 
 
