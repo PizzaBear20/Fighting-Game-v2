@@ -148,9 +148,10 @@ class Character:
         self.speed = 1
         self.mana = 1
         self.battleIQ = 1
+        self.defense = 1
         count = 1
         while count <= self.points:
-            randomNum = random.randrange(1, 6)
+            randomNum = random.randrange(1, 7)
             if randomNum == 1:
                 self.health += 1
             elif randomNum == 2:
@@ -159,6 +160,8 @@ class Character:
                 self.speed += 1
             elif randomNum == 4:
                 self.mana += 1
+            elif randomNum == 5:
+                self.defense += 1
             else:
                 self.battleIQ += 1
             count += 1  # Increment count to avoid infinite loop
@@ -175,6 +178,7 @@ class Character:
             f"Strength: {self.strength}\n"
             f"Speed: {self.speed}\n"
             f"Mana: {self.mana}\n"
+            f"Defense: {self.defense}\n"
             f"Battle IQ: {self.battleIQ}\n"
             f"{specialMovesString}\n"
         )
@@ -231,13 +235,15 @@ class Character:
             else:
                 abilityName = random.choice(prefixes) + " " +  random.choice(elements) + " " +  random.choice(suffixes)
         
-            abilityTypeRoll = random.randrange(1,4) #1strength health speed
+            abilityTypeRoll = random.randrange(1,5) #1strength health speed defense
             if abilityTypeRoll == 1:
                 abilityType = "Strength"
             elif abilityTypeRoll == 2:
                 abilityType = "Health"
-            else:
+            elif abilityTypeRoll == 3:
                 abilityType = "Speed"
+            else:
+                abilityType = "Defense"
 
             bonusPoints = random.randrange(1,self.mana + 1)
 
@@ -251,7 +257,7 @@ class Character:
 
         else:
             if attribute == "random":
-                attribute = random.choice(["health", "strength", "speed", "mana", "battleIQ"])
+                attribute = random.choice(["health", "strength", "speed", "mana", "battleIQ", "defense"])
 
             statBoost = random.randrange(1, 21)
             if statBoost <= 5:
@@ -283,18 +289,20 @@ class Character:
                 self.mana += increment
             elif attribute == "battleIQ":
                 self.battleIQ += increment
+            elif attribute == "defense":
+                self.defense += increment
         
         return message
 
     def powerLevel(self):
-        powerLevel = self.health + self.strength + self.speed + self.mana + self.battleIQ
+        powerLevel = self.health + self.strength + self.speed + self.mana + self.battleIQ + self.defense
         for move in self.specialMoves:
             powerLevel += move['bonus']
         return powerLevel
 
     # Trains several times in a row and sums up what changed
     def trainMany(self, attribute, times):
-        statNames = {"health": "health", "strength": "strength", "speed": "speed", "mana": "mana", "battleIQ": "battle IQ"}
+        statNames = {"health": "health", "strength": "strength", "speed": "speed", "mana": "mana", "battleIQ": "battle IQ", "defense": "defense"}
         before = {stat: getattr(self, stat) for stat in statNames}
         movesBefore = len(self.specialMoves)
         lastMessage = ""
@@ -326,6 +334,7 @@ class Character:
             "speed": self.speed,
             "mana": self.mana,
             "battleIQ": self.battleIQ,
+            "defense": self.defense,
             "specialMoves": self.specialMoves,
             "look": self.look,
         }
@@ -338,6 +347,7 @@ class Character:
         character.speed = data["speed"]
         character.mana = data["mana"]
         character.battleIQ = data["battleIQ"]
+        character.defense = data.get("defense", 1)  # older saves didn't have defense
         character.specialMoves = data.get("specialMoves", [])
         savedLook = data.get("look")
         if savedLook:
@@ -354,7 +364,7 @@ class Character:
 
 
 # Attribute names people can pick or type -> the real attribute name
-ATTRIBUTE_CHOICES = ["Random", "Health", "Strength", "Speed", "Mana", "Battle IQ"]
+ATTRIBUTE_CHOICES = ["Random", "Health", "Strength", "Speed", "Mana", "Battle IQ", "Defense"]
 attributeNames = {
     "health": "health",
     "strength": "strength",
@@ -363,6 +373,7 @@ attributeNames = {
     "battleiq": "battleIQ",
     "battle iq": "battleIQ",
     "iq": "battleIQ",
+    "defense": "defense",
     "random": "random",
 }
 

@@ -6,38 +6,98 @@ import theme
 from drawing import drawArena, drawFighter as drawLook, readable
 
 # Fight settings
-HP_PER_HEALTH = 10  # each health point is worth 10 HP so fights last long enough to watch
-MAX_ROUNDS = 300    # if nobody is knocked out by then, whoever has more HP wins
+HP_PER_HEALTH = 10      # each health point is worth 10 HP so fights last long enough to watch
+MAX_ROUNDS = 300        # if nobody is knocked out by then, whoever has more HP wins
+CRIT_MULTIPLIER = 1.75  # critical hits do this much more damage
+DEFENSE_SOFTENER = 15   # a fighter with this much defense takes half damage
+MOVE_CHANCE = 0.7       # chance of using a special move when one is ready
+
+# ---------- special moves ----------
+
+# Stronger moves cost more mana
+def moveCost(move):
+    return 15 + move['bonus']
+
+# How much mana a fighter can hold, and how much they get back each time they attack
+def maxMana(mana):
+    return 30 + mana * 4
+
+def manaGain(mana):
+    return 4 + mana // 3
+
+# A short line saying what a move does in a fight
+def describeMove(move):
+    bonus = move['bonus']
+    if move['type'] == 'Strength':
+        return f"+{bonus * 3} damage"
+    elif move['type'] == 'Speed':
+        return "2 hits, can't be dodged"
+    elif move['type'] == 'Health':
+        return f"heals {bonus * 8} HP"
+    else:
+        return f"shield blocks {bonus * 6} damage"
+
+# ---------- battle IQ ----------
+
+# A number from 0 to 1 for how much smarter one fighter is than the other
+def iqEdge(mine, theirs):
+    return mine / (mine + theirs + 10)
+
+def dodgeChance(defender, attacker):
+    return 0.03 + 0.3 * iqEdge(defender['battleIQ'], attacker['battleIQ'])
+
+def critChance(attacker, defender):
+    return 0.05 + 0.3 * iqEdge(attacker['battleIQ'], defender['battleIQ'])
 
 # Works out the whole fight ahead of time. The fight window then plays it back as an animation
 def simulateFight(character1, character2):
     fighters = []
     for character in (character1, character2):
-        health = character.health
-        speed = character.speed
-        attack = (0.25 * float(character.battleIQ)) + float(character.strength)
-
-        # Apply special moves
-        for move in character.specialMoves:
-            if move['type'] == 'Speed':
-                speed += move['bonus']
-            elif move['type'] == 'Strength':
-                attack += move['bonus']
-            elif move['type'] == 'Health':
-                health += move['bonus']
-
         fighters.append({
             'name': character.name,
-            'maxHP': health * HP_PER_HEALTH,
-            'attack': attack,
-            'speed': speed,
+            'maxHP': character.health * HP_PER_HEALTH,
+            'attack': character.strength,
+            'defense': character.defense,
+            'speed': character.speed,
+            'battleIQ': character.battleIQ,
+            'mana': character.mana,
+            'maxMP': maxMana(character.mana),
             'moves': list(character.specialMoves),
             'look': dict(character.look),
         })
 
     hp = [fighters[0]['maxHP'], fighters[1]['maxHP']]
+    mp = [0, 0]
+    shield = [0, 0]
     totalSpeed = fighters[0]['speed'] + fighters[1]['speed']
     events = []
+
+    # Lands one hit on the defender. Defense makes it smaller and a shield soaks it up first
+    def strike(event, rawDamage):
+        defender = 1 - event['attacker']
+        softened = DEFENSE_SOFTENER / (DEFENSE_SOFTENER + fighters[defender]['defense'])
+        damage = max(1, round(rawDamage * random.uniform(0.8, 1.2) * softened))
+        blocked = min(shield[defender], damage)
+        shield[defender] -= blocked
+        hp[defender] = max(0, hp[defender] - (damage - blocked))
+        event['hits'].append(damage - blocked)
+        event['blocked'] += blocked
+
+    # Picks a special move the fighter can afford and that makes sense right now, or None
+    def chooseMove(i):
+        fighter = fighters[i]
+        usable = []
+        for move in fighter['moves']:
+            if moveCost(move) > mp[i]:
+                continue
+            if move['type'] == 'Health' and hp[i] > fighter['maxHP'] * 0.6:
+                continue
+            if move['type'] == 'Defense' and shield[i] > 0:
+                continue
+            usable.append(move)
+        if usable and random.random() < MOVE_CHANCE:
+            return random.choice(usable)
+        return None
 
     # Each round one fighter attacks. The faster you are, the more often you get the attack
     while hp[0] > 0 and hp[1] > 0 and len(events) < MAX_ROUNDS:
@@ -46,9 +106,45 @@ def simulateFight(character1, character2):
         else:
             attacker = 1
         defender = 1 - attacker
-        damage = max(1, round(fighters[attacker]['attack'] * random.uniform(0.8, 1.2)))
-        hp[defender] = max(0, hp[defender] - damage)
-        events.append({'attacker': attacker, 'damage': damage, 'hp': list(hp)})
+        me = fighters[attacker]
+        them = fighters[defender]
+        mp[attacker] = min(me['maxMP'], mp[attacker] + manaGain(me['mana']))
+        event = {'attacker': attacker, 'kind': 'hit', 'move': None, 'hits': [], 'blocked': 0, 'heal': 0, 'shieldGain': 0}
+
+        move = chooseMove(attacker)
+        if move is not None:
+            mp[attacker] -= moveCost(move)
+            event['kind'] = 'move'
+            event['move'] = move
+            bonus = move['bonus']
+            if move['type'] == 'Strength':
+                strike(event, me['attack'] + bonus * 3)
+            elif move['type'] == 'Speed':
+                for count in range(2):
+                    if hp[defender] > 0:
+                        strike(event, me['attack'] * 0.7 + bonus * 1.5)
+            elif move['type'] == 'Health':
+                event['heal'] = min(bonus * 8, me['maxHP'] - hp[attacker])
+                hp[attacker] += event['heal']
+            else:
+                event['shieldGain'] = bonus * 6
+                shield[attacker] += event['shieldGain']
+        elif random.random() < dodgeChance(them, me):
+            event['kind'] = 'dodge'
+        elif random.random() < critChance(me, them):
+            event['kind'] = 'crit'
+            strike(event, me['attack'] * CRIT_MULTIPLIER)
+        else:
+            strike(event, me['attack'])
+
+        # getting hit builds a little mana too
+        if event['hits']:
+            mp[defender] = min(them['maxMP'], mp[defender] + 2)
+        event['damage'] = sum(event['hits'])
+        event['hp'] = list(hp)
+        event['mp'] = list(mp)
+        event['shield'] = list(shield)
+        events.append(event)
 
     if hp[0] > hp[1]:
         winner = 0
@@ -72,6 +168,11 @@ class FightWindow:
     BAR_WIDTH = 300
     KO_COLOR = "#7d7d8c"
     SKY = "#20243a"
+    MP_COLOR = "#b47cff"
+    SHIELD_COLOR = "#ff9f43"
+    CRIT_COLOR = "#ff8c42"
+    DODGE_COLOR = "#7fd6ff"
+    HEAL_COLOR = "#4cd964"
 
     # onFinish(historyEvent) is called once the fight has a result
     def __init__(self, parent, character1, character2, onFinish):
@@ -113,7 +214,10 @@ class FightWindow:
         self.facing = [1, -1]            # 1 = facing right, -1 = facing left
         self.poses = ["stand", "stand"]  # stand, punch, hit, down, win
         self.flash = [False, False]
+        self.lift = [0, 0]               # how high off the ground (for dodging)
         self.shownHP = [self.fighters[0]['maxHP'], self.fighters[1]['maxHP']]
+        self.shownMP = [0, 0]
+        self.shownShield = [0, 0]
 
         self.eventsLogged = 0
         self.recorded = False
@@ -175,6 +279,15 @@ class FightWindow:
                 else:
                     c.create_rectangle(barRight - 2 - fillWidth, 42, barRight - 2, 60, fill=barColor, outline="", tags="hud")
 
+            # mana bar under the health bar
+            c.create_rectangle(barLeft, 67, barRight, 75, fill="#111320", outline="#5a5f78", tags="hud")
+            mpWidth = (self.BAR_WIDTH - 2) * self.shownMP[i] / fighter['maxMP']
+            if mpWidth > 0:
+                if i == 0:
+                    c.create_rectangle(barLeft + 1, 68, barLeft + 1 + mpWidth, 74, fill=self.MP_COLOR, outline="", tags="hud")
+                else:
+                    c.create_rectangle(barRight - 1 - mpWidth, 68, barRight - 1, 74, fill=self.MP_COLOR, outline="", tags="hud")
+
             hpText = f"HP {round(max(0, self.shownHP[i]))} / {fighter['maxHP']}"
             if i == 0:
                 c.create_text(barLeft, 28, text=fighter['name'], anchor="w", fill=self.colors[i], font=("Helvetica", 15, "bold"), tags="hud")
@@ -188,8 +301,11 @@ class FightWindow:
         tag = f"fighter{i}"
         self.canvas.delete(tag)
         x = self.x[i]
-        g = self.GROUND
+        g = self.GROUND - self.lift[i]
         drawLook(self.canvas, x, g, self.fighters[i]['look'], self.facing[i], self.poses[i], tag=tag, flash=self.flash[i])
+        if self.shownShield[i] > 0 and self.poses[i] != "down":
+            self.canvas.create_oval(x - 62, g - 160, x + 62, g + 12, outline=self.SHIELD_COLOR, width=3, tags=tag)
+            self.canvas.create_text(x, g + 22, text=f"Shield {self.shownShield[i]}", fill=self.SHIELD_COLOR, font=("Helvetica", 10, "bold"), tags=tag)
         if self.poses[i] == "down":
             self.canvas.create_text(x, g - 70, text=self.fighters[i]['name'], fill=self.KO_COLOR, font=("Helvetica", 12, "bold"), tags=tag)
         else:
@@ -212,10 +328,28 @@ class FightWindow:
         defenderIndex = 1 - event['attacker']
         defender = self.fighters[defenderIndex]['name']
         hpLeft = event['hp'][defenderIndex]
-        if hpLeft == 0:
-            self.log(f"{attacker} hits {defender} for {event['damage']} damage. {defender} is knocked out!")
+        move = event['move']
+        if event['kind'] == 'dodge':
+            text = f"{attacker} attacks but {defender} dodges!"
+        elif move is not None and move['type'] == 'Health':
+            text = f"{attacker} uses {move['name']} and heals {event['heal']} HP ({event['hp'][event['attacker']]} HP)"
+        elif move is not None and move['type'] == 'Defense':
+            text = f"{attacker} uses {move['name']} and raises a {event['shieldGain']} point shield"
         else:
-            self.log(f"{attacker} hits {defender} for {event['damage']} damage ({hpLeft} HP left)")
+            if move is not None:
+                hits = f" in {len(event['hits'])} hits" if len(event['hits']) > 1 else ""
+                text = f"{attacker} uses {move['name']}! {defender} takes {event['damage']} damage{hits}"
+            elif event['kind'] == 'crit':
+                text = f"CRITICAL HIT! {attacker} hits {defender} for {event['damage']} damage"
+            else:
+                text = f"{attacker} hits {defender} for {event['damage']} damage"
+            if event['blocked']:
+                text += f" ({event['blocked']} blocked by shield)"
+            if hpLeft == 0:
+                text += f". {defender} is knocked out!"
+            else:
+                text += f" ({hpLeft} HP left)"
+        self.log(text)
         self.eventsLogged += 1
 
     # ---------- animation ----------
@@ -236,16 +370,13 @@ class FightWindow:
 
         self.announce(f"{name1}  VS  {name2}")
         for fighter in self.fighters:
-            self.log(f"{fighter['name']}: {fighter['maxHP']} HP, {fighter['attack']:.1f} attack, {fighter['speed']} speed")
+            self.log(f"{fighter['name']}: {fighter['maxHP']} HP, {fighter['attack']} strength, {fighter['defense']} defense, "
+                     f"{fighter['speed']} speed, {fighter['battleIQ']} battle IQ, {fighter['maxMP']} MP")
+            for move in fighter['moves'][:3]:
+                self.log(f"   ★ {move['name']} ({move['type']}, {moveCost(move)} MP): {describeMove(move)}")
+            if len(fighter['moves']) > 3:
+                self.log(f"   ...and {len(fighter['moves']) - 3} more special moves")
         yield 1000
-
-        # special moves power up
-        for i in (0, 1):
-            moves = self.fighters[i]['moves']
-            for move in moves[:3]:
-                yield from self.powerUp(i, move)
-            if len(moves) > 3:
-                self.log(f"...and {len(moves) - 3} more special moves")
 
         self.announce("FIGHT!", "#ff5c5c")
         yield 700
@@ -256,26 +387,81 @@ class FightWindow:
 
         yield from self.playEnding()
 
-    def powerUp(self, i, move):
+    def playEvent(self, event):
+        attacker = event['attacker']
+        move = event['move']
+        self.shownMP = list(event['mp'])
+        self.drawHealthBars()
+        if move is not None:
+            yield from self.castMove(attacker, move)
+        self.logEvent(event)
+
+        if move is not None and move['type'] == 'Health':
+            yield from self.playHeal(attacker, event)
+        elif move is not None and move['type'] == 'Defense':
+            yield from self.playShield(attacker, event)
+        else:
+            yield from self.playAttack(event)
+
+        self.shownShield = list(event['shield'])
+        for i in (0, 1):
+            self.drawFighter(i)
+        yield 150
+
+    # The move's name flashes up and the fighter glows in the move's color
+    def castMove(self, i, move):
         c = self.canvas
         x = self.x[i]
         g = self.GROUND
-        self.log(f"{self.fighters[i]['name']} powers up with {move['name']} (+{move['bonus']} {move['type']})")
-        c.create_text(x, g - 214, text=move['name'], fill="#ffffff", font=("Helvetica", 14, "bold"), tags="temp")
-        c.create_text(x, g - 195, text=f"+{move['bonus']} {move['type']}", fill="#ffd34d", font=("Helvetica", 12), tags="temp")
-        for frame in range(16):
+        color = theme.MOVE_COLORS.get(move['type'], self.colors[i])
+        c.create_text(x + 2, g - 212, text=move['name'], fill="#000000", font=("Helvetica", 16, "bold"), tags="temp")
+        c.create_text(x, g - 214, text=move['name'], fill=color, font=("Helvetica", 16, "bold"), tags="temp")
+        for frame in range(12):
             c.delete("aura")
-            size = 40 + (frame % 8) * 4
-            c.create_oval(x - size, g - 140 - frame % 8, x + size, g + 8, outline=self.colors[i], width=3, tags=("aura", "temp"))
+            size = 40 + (frame % 6) * 5
+            c.create_oval(x - size, g - 140 - frame % 6, x + size, g + 8, outline=color, width=3, tags=("aura", "temp"))
             c.tag_lower("aura", f"fighter{i}")
             yield 45
         c.delete("temp")
 
-    def playEvent(self, event):
+    def playHeal(self, i, event):
         c = self.canvas
+        x = self.x[i]
+        g = self.GROUND
+        healText = c.create_text(x, g - 190, text=f"+{event['heal']}", fill=self.HEAL_COLOR, font=("Helvetica", 22, "bold"), tags="temp")
+        startHP = self.shownHP[i]
+        endHP = event['hp'][i]
+        frames = 14
+        for frame in range(1, frames + 1):
+            # little green sparkles float up
+            sparkleX = x + random.randint(-40, 40)
+            sparkleY = g - random.randint(10, 140)
+            c.create_oval(sparkleX - 3, sparkleY - 3, sparkleX + 3, sparkleY + 3, fill=self.HEAL_COLOR, outline="", tags="temp")
+            c.move(healText, 0, -2)
+            self.shownHP[i] = startHP + (endHP - startHP) * frame / frames
+            self.drawHealthBars()
+            yield 35
+        c.delete("temp")
+
+    def playShield(self, i, event):
+        c = self.canvas
+        x = self.x[i]
+        g = self.GROUND
+        c.create_text(x, g - 190, text=f"+{event['shieldGain']} SHIELD", fill=self.SHIELD_COLOR, font=("Helvetica", 18, "bold"), tags="temp")
+        # the shield grows out from the fighter
+        for frame in range(1, 9):
+            c.delete("ring")
+            size = 62 * frame / 8
+            c.create_oval(x - size, g - 74 - size * 1.4, x + size, g - 74 + size * 1.4, outline=self.SHIELD_COLOR, width=3, tags=("ring", "temp"))
+            yield 35
+        self.shownShield[i] = event['shield'][i]
+        self.drawFighter(i)
+        yield 300
+        c.delete("temp")
+
+    def playAttack(self, event):
         attacker = event['attacker']
         defender = 1 - attacker
-        g = self.GROUND
 
         # attacker dashes in and throws a punch
         attackStart = self.x[attacker]
@@ -288,43 +474,20 @@ class FightWindow:
             self.drawFighter(attacker)
             yield 25
 
-        # impact
-        self.poses[defender] = "hit"
-        self.flash[defender] = True
-        hitX = self.x[defender] + self.facing[defender] * 14
-        hitY = g - 86
-        for angle in range(8):
-            dx = [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][angle]
-            dy = [0, 0.7, 1, 0.7, 0, -0.7, -1, -0.7][angle]
-            c.create_line(hitX + dx * 8, hitY + dy * 8, hitX + dx * 22, hitY + dy * 22, fill="#ffdd57", width=3, tags=("spark", "temp"))
-        damageText = c.create_text(self.x[defender], g - 190, text=f"-{event['damage']}", fill="#ffdd57", font=("Helvetica", 22, "bold"), tags="temp")
-        self.logEvent(event)
-
-        defenderStart = self.x[defender]
-        startHP = self.shownHP[defender]
-        endHP = event['hp'][defender]
-        frames = 12
-        for frame in range(1, frames + 1):
-            if frame == 3:
-                self.flash[defender] = False
-            if frame == 4:
-                c.delete("spark")
-            # knocked back a little, then steps back in
-            if frame <= frames / 2:
-                knockback = frame * 3
-            else:
-                knockback = (frames - frame) * 3
-            self.x[defender] = defenderStart - self.facing[defender] * knockback
-            self.shownHP[defender] = startHP + (endHP - startHP) * frame / frames
-            c.move(damageText, 0, -3)
-            self.drawFighter(defender)
+        if event['kind'] == 'dodge':
+            yield from self.playDodge(defender)
+        else:
+            for number, damage in enumerate(event['hits']):
+                if number > 0:
+                    # pull back and swing again
+                    self.poses[attacker] = "stand"
+                    self.drawFighter(attacker)
+                    yield 60
+                    self.poses[attacker] = "punch"
+                    self.drawFighter(attacker)
+                yield from self.playImpact(event, damage, showBlocked=(number == 0))
+            self.shownHP[defender] = event['hp'][defender]
             self.drawHealthBars()
-            yield 30
-        c.delete("temp")
-        self.x[defender] = defenderStart
-        if endHP > 0:
-            self.poses[defender] = "stand"
-            self.drawFighter(defender)
 
         # attacker goes back to their spot
         self.poses[attacker] = "stand"
@@ -334,7 +497,82 @@ class FightWindow:
             self.x[attacker] = returnStart + (self.homeX[attacker] - returnStart) * frame / frames
             self.drawFighter(attacker)
             yield 20
-        yield 150
+
+    # The defender hops back out of the way
+    def playDodge(self, defender):
+        c = self.canvas
+        dodgeText = c.create_text(self.x[defender], self.GROUND - 190, text="DODGE!", fill=self.DODGE_COLOR, font=("Helvetica", 20, "bold"), tags="temp")
+        defenderStart = self.x[defender]
+        frames = 12
+        for frame in range(1, frames + 1):
+            if frame <= frames / 2:
+                amount = frame
+            else:
+                amount = frames - frame
+            self.x[defender] = defenderStart - self.facing[defender] * amount * 7
+            self.lift[defender] = amount * 6
+            c.move(dodgeText, 0, -2)
+            self.drawFighter(defender)
+            yield 30
+        self.x[defender] = defenderStart
+        self.lift[defender] = 0
+        self.drawFighter(defender)
+        c.delete("temp")
+
+    def playImpact(self, event, damage, showBlocked):
+        c = self.canvas
+        defender = 1 - event['attacker']
+        g = self.GROUND
+        move = event['move']
+        big = event['kind'] != 'hit'
+        if event['kind'] == 'crit':
+            color = self.CRIT_COLOR
+            label = f"CRITICAL! -{damage}"
+        elif move is not None:
+            color = theme.MOVE_COLORS.get(move['type'], "#ffdd57")
+            label = f"-{damage}"
+        else:
+            color = "#ffdd57"
+            label = f"-{damage}"
+        if showBlocked and event['blocked']:
+            label += f"  ({event['blocked']} blocked)"
+
+        self.poses[defender] = "hit"
+        self.flash[defender] = True
+        hitX = self.x[defender] + self.facing[defender] * 14
+        hitY = g - 86
+        sparkSize = 34 if big else 22
+        for angle in range(8):
+            dx = [1, 0.7, 0, -0.7, -1, -0.7, 0, 0.7][angle]
+            dy = [0, 0.7, 1, 0.7, 0, -0.7, -1, -0.7][angle]
+            c.create_line(hitX + dx * 8, hitY + dy * 8, hitX + dx * sparkSize, hitY + dy * sparkSize, fill=color, width=4 if big else 3, tags=("spark", "temp"))
+        damageText = c.create_text(self.x[defender], g - 190, text=label, fill=color, font=("Helvetica", 24 if big else 22, "bold"), tags="temp")
+
+        defenderStart = self.x[defender]
+        startHP = self.shownHP[defender]
+        endHP = max(0, startHP - damage)
+        frames = 12
+        for frame in range(1, frames + 1):
+            if frame == 3:
+                self.flash[defender] = False
+            if frame == 4:
+                c.delete("spark")
+            # knocked back a little, then steps back in
+            if frame <= frames / 2:
+                knockback = frame * (5 if big else 3)
+            else:
+                knockback = (frames - frame) * (5 if big else 3)
+            self.x[defender] = defenderStart - self.facing[defender] * knockback
+            self.shownHP[defender] = startHP + (endHP - startHP) * frame / frames
+            c.move(damageText, 0, -3)
+            self.drawFighter(defender)
+            self.drawHealthBars()
+            yield 30
+        c.delete("temp")
+        self.x[defender] = defenderStart
+        if event['hp'][defender] > 0:
+            self.poses[defender] = "stand"
+            self.drawFighter(defender)
 
     def playEnding(self):
         winner = self.result['winner']
@@ -359,7 +597,11 @@ class FightWindow:
         for i in (0, 1):
             self.x[i] = self.homeX[i]
             self.flash[i] = False
-            self.shownHP[i] = self.events[-1]['hp'][i] if self.events else self.fighters[i]['maxHP']
+            self.lift[i] = 0
+            if self.events:
+                self.shownHP[i] = self.events[-1]['hp'][i]
+                self.shownMP[i] = self.events[-1]['mp'][i]
+                self.shownShield[i] = self.events[-1]['shield'][i]
             if winner is None:
                 self.poses[i] = "stand"
             elif i == winner:

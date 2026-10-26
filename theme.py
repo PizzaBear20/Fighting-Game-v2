@@ -21,8 +21,9 @@ STAT_COLORS = {
     "speed": "#00d2d3",
     "mana": "#b47cff",
     "battleIQ": "#ffcc00",
+    "defense": "#ff9f43",
 }
-MOVE_COLORS = {"Health": "#4cd964", "Strength": "#ff6b6b", "Speed": "#00d2d3"}
+MOVE_COLORS = {"Health": "#4cd964", "Strength": "#ff6b6b", "Speed": "#00d2d3", "Defense": "#ff9f43"}
 
 # Fonts
 FONT = "Helvetica"

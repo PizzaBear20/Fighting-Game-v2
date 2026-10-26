@@ -9,7 +9,7 @@ import theme
 from character import Character, ATTRIBUTE_CHOICES, cleanAttribute
 from customize import CustomizeWindow
 from drawing import drawArena, drawFighter, darker, readable
-from fight import FightWindow
+from fight import FightWindow, describeMove, moveCost
 
 SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save_data.json")
 MAX_NAME_LENGTH = 16
@@ -154,7 +154,7 @@ def onCreateCharacterClick(event=None):
 PORTRAIT_WIDTH = 210
 PORTRAIT_HEIGHT = 260
 PORTRAIT_GROUND = 228
-STATS = [("Health", "health"), ("Strength", "strength"), ("Speed", "speed"), ("Mana", "mana"), ("Battle IQ", "battleIQ")]
+STATS = [("Health", "health"), ("Strength", "strength"), ("Speed", "speed"), ("Mana", "mana"), ("Battle IQ", "battleIQ"), ("Defense", "defense")]
 portraitPhase = 0
 
 def drawPortrait():
@@ -186,7 +186,7 @@ def drawStatBars():
         for label, stat in STATS:
             biggest = max(biggest, getattr(other, stat))
     for index, (label, stat) in enumerate(STATS):
-        y = 14 + index * 30
+        y = 14 + index * 26
         value = getattr(character, stat)
         barLeft = 84
         barRight = width - 40
@@ -212,7 +212,7 @@ def updateCard():
             lines = []
             for move in character.specialMoves:
                 lines.append((f"★ {move['name']}", "name"))
-                lines.append((f"   +{move['bonus']} {move['type']}\n", move['type']))
+                lines.append((f"   {move['type']} · {moveCost(move)} MP · {describeMove(move)}\n", move['type']))
             theme.setText(movesText, lines)
         else:
             theme.setText(movesText, [("No special moves yet. Keep training to unlock them!", "muted")])
@@ -409,7 +409,7 @@ nameLabel = theme.label(infoFrame, font=theme.NAME_FONT)
 nameLabel.pack(anchor="w")
 subtitleLabel = theme.label(infoFrame, fg=theme.MUTED, font=theme.SMALL_FONT)
 subtitleLabel.pack(anchor="w", pady=(0, 12))
-statsCanvas = tk.Canvas(infoFrame, width=270, height=150, bg=theme.PANEL, highlightthickness=0)
+statsCanvas = tk.Canvas(infoFrame, width=270, height=160, bg=theme.PANEL, highlightthickness=0)
 statsCanvas.pack(anchor="w")
 
 theme.label(cardBody, "SPECIAL MOVES", fg=theme.MUTED, font=theme.HEADING_FONT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(14, 6))
