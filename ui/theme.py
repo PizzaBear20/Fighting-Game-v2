@@ -54,6 +54,9 @@ def setupStyles(root):
                   foreground=[("disabled", MUTED)])
     style.configure("Fight.TButton", font=(FONT, 16, "bold"), padding=(18, 10))
     style.configure("Small.TButton", padding=(8, 3), font=SMALL_FONT)
+    # big main menu buttons. "Menu.Accent.TButton" gets the Accent colors with the Menu size
+    for menuStyle in ("Menu.TButton", "Menu.Accent.TButton", "Menu.Fight.TButton", "Menu.Gold.TButton"):
+        style.configure(menuStyle, font=(FONT, 18, "bold"), padding=(24, 12))
 
     style.configure("TCombobox", fieldbackground=PANEL_LIGHT, background=PANEL_LIGHT, foreground=TEXT,
                     arrowcolor=TEXT, bordercolor=BORDER, padding=4)

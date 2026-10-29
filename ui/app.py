@@ -9,10 +9,14 @@ from core.fight import describeMove, moveCost
 from core.players import ownerChoices
 from core.save import saveGame, loadGame, SaveFileError
 from ui import theme
+from ui.adventure import AdventureScreen
+from ui.campaign import CampaignScreen
 from ui.customize import CustomizeWindow
 from ui.drawing import drawArena, drawFighter, darker, readable
 from ui.fight import FightWindow
+from ui.menu import MainMenu
 from ui.players import PlayersWindow
+from ui.pvp import PvPScreen
 
 MAX_NAME_LENGTH = 16
 
@@ -27,6 +31,9 @@ history = []
 
 # Name of the character shown on the fighter card
 selectedName = None
+
+# The frame filling the window right now (the menu, the Characters screen or a game mode)
+currentScreen = None
 
 
 # ---------- saving and loading ----------
@@ -207,10 +214,10 @@ def drawPortrait():
                 shadow="#262a40")
 
 def animatePortrait():
-    global portraitPhase
+    global portraitPhase, portraitAnimation
     portraitPhase += 1
     drawPortrait()
-    root.after(90, animatePortrait)
+    portraitAnimation = root.after(90, animatePortrait)
 
 def drawStatBars():
     statsCanvas.delete("all")
@@ -361,6 +368,10 @@ def onFightButtonClick():
 
 def onFightFinished(historyEvent):
     history.append(historyEvent)
+    # the fight window stays open if you go back to the menu, so the Characters screen might be gone
+    if not statusLabel.winfo_exists():
+        save()
+        return
     refreshAll()
     setStatus(historyEvent, theme.GOLD)
 
@@ -413,20 +424,50 @@ def refreshAll():
 
 # ---------- GUI ----------
 
-# Builds the main window, loads the save and runs until the window is closed
-def run():
+# ---------- screens ----------
+
+# Swaps what the window shows. makeScreen(parent) builds the new screen and returns its frame.
+# The old screen is destroyed, so a screen should stop its own animations when its frame is destroyed
+def showScreen(makeScreen):
+    global currentScreen
+    if currentScreen is not None:
+        currentScreen.destroy()
+    currentScreen = makeScreen(root)
+    currentScreen.grid(row=0, column=0, sticky="nsew")
+
+def showMenu():
+    topFighters = [characters[name] for name in rankedNames()[:2]]
+    subtitle = f"{len(characters)} fighter{'s' if len(characters) != 1 else ''}  ·  " \
+               f"{len(players)} player{'s' if len(players) != 1 else ''}"
+    buttons = [
+        ("🗺  Adventure", "Menu.Accent.TButton", lambda: showMode(AdventureScreen)),
+        ("⚔  PvP", "Menu.Fight.TButton", lambda: showMode(PvPScreen)),
+        ("📜  Campaign", "Menu.Gold.TButton", lambda: showMode(CampaignScreen)),
+        ("👥  Characters", "Menu.TButton", lambda: showScreen(buildCharactersScreen)),
+        ("Quit", "Menu.TButton", root.destroy),
+    ]
+    showScreen(lambda parent: MainMenu(parent, buttons, topFighters, subtitle).frame)
+
+# Opens a game mode. ScreenClass(parent, onBack) builds it and keeps its widgets in .frame
+def showMode(ScreenClass):
+    showScreen(lambda parent: ScreenClass(parent, showMenu).frame)
+
+
+# ---------- GUI ----------
+
+# Builds the roster/training/fight screen and returns its frame
+def buildCharactersScreen(parent):
     # the callbacks above use these widgets, so they have to be globals
-    global root, countsLabel, rosterFilter, rosterCanvas, createCharacterEntry, newOwnerChoice, portraitCanvas, nameLabel, \
+    global countsLabel, rosterFilter, rosterCanvas, createCharacterEntry, newOwnerChoice, portraitCanvas, nameLabel, \
         subtitleLabel, ownerChoice, statsCanvas, movesText, customizeButton, deleteButton, trainAttribute, trainButton, trainTenButton, matchupCanvas, \
         fighter1Choice, fighter2Choice, trainEveryoneTimes, trainEveryoneAttribute, historyText, statusLabel, selectedName
 
-    root = tk.Tk()
-    root.title("Fighting Game")
-    theme.setupStyles(root)
+    screen = tk.Frame(parent, bg=theme.BG)
 
     # header
-    header = tk.Frame(root, bg=theme.BG)
+    header = tk.Frame(screen, bg=theme.BG)
     header.grid(row=0, column=0, columnspan=3, sticky="ew", padx=16, pady=(14, 6))
+    ttk.Button(header, text="← Menu", command=showMenu).pack(side="left", padx=(0, 14))
     tk.Label(header, text="FIGHTING GAME", bg=theme.BG, fg=theme.TEXT, font=theme.TITLE_FONT).pack(side="left")
     tk.Label(header, text="v2", bg=theme.BG, fg=theme.GOLD, font=(theme.FONT, 14, "bold")).pack(side="left", padx=(8, 0), pady=(8, 0))
     ttk.Button(header, text="👥 Players", command=onPlayersClick).pack(side="right", padx=(12, 0))
@@ -434,7 +475,7 @@ def run():
     countsLabel.pack(side="right")
 
     # roster
-    rosterPanel, rosterBody = theme.panel(root, "Roster  ·  ranked by power")
+    rosterPanel, rosterBody = theme.panel(screen, "Roster  ·  ranked by power")
     rosterPanel.grid(row=1, column=0, sticky="nsew", padx=(16, 8), pady=8)
     filterRow = tk.Frame(rosterBody, bg=theme.PANEL)
     filterRow.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
@@ -467,7 +508,7 @@ def run():
     newOwnerChoice.pack(side="left", fill="x", expand=True)
 
     # fighter card
-    cardPanel, cardBody = theme.panel(root, "Fighter")
+    cardPanel, cardBody = theme.panel(screen, "Fighter")
     cardPanel.grid(row=1, column=1, sticky="nsew", padx=8, pady=8)
 
     portraitCanvas = tk.Canvas(cardBody, width=PORTRAIT_WIDTH, height=PORTRAIT_HEIGHT, bg=theme.PANEL, highlightthickness=0)
@@ -516,7 +557,7 @@ def run():
     trainTenButton.pack(side="left", padx=(8, 0))
 
     # right column
-    rightColumn = tk.Frame(root, bg=theme.BG)
+    rightColumn = tk.Frame(screen, bg=theme.BG)
     rightColumn.grid(row=1, column=2, sticky="nsew", padx=(8, 16), pady=8)
     rightColumn.rowconfigure(2, weight=1)
 
@@ -559,18 +600,40 @@ def run():
     historyText.tag_config("muted", foreground=theme.MUTED)
 
     # status bar
-    statusBar = tk.Frame(root, bg=theme.PANEL, highlightbackground=theme.BORDER, highlightthickness=1)
+    statusBar = tk.Frame(screen, bg=theme.PANEL, highlightbackground=theme.BORDER, highlightthickness=1)
     statusBar.grid(row=2, column=0, columnspan=3, sticky="ew", padx=16, pady=(8, 16))
     statusLabel = tk.Label(statusBar, text="Welcome! Create fighters, customize them, train them, and make them fight.",
                            bg=theme.PANEL, fg=theme.MUTED, font=theme.SMALL_FONT, anchor="w")
     statusLabel.pack(fill="x", padx=12, pady=8)
 
-    root.rowconfigure(1, weight=1)
+    screen.rowconfigure(1, weight=1)
 
-    load()
-    names = rankedNames()
-    selectedName = names[0] if names else None
+    # keep the fighter you were looking at last time, if they're still around
+    if selectedName not in characters:
+        names = rankedNames()
+        selectedName = names[0] if names else None
     refreshAll()
     animatePortrait()
+    screen.bind("<Destroy>", lambda event: root.after_cancel(portraitAnimation))
+    return screen
+
+
+# Builds the main window, loads the save, shows the main menu and runs until the window is closed
+def run():
+    global root
+    root = tk.Tk()
+    root.title("Fighting Game")
+    theme.setupStyles(root)
+    root.rowconfigure(0, weight=1)
+    root.columnconfigure(0, weight=1)
+
+    load()
+    # the Characters screen is the biggest, so size the window to fit it. Then it doesn't jump around when switching screens
+    root.withdraw()
+    showScreen(buildCharactersScreen)
+    root.update_idletasks()
+    root.minsize(currentScreen.winfo_reqwidth(), currentScreen.winfo_reqheight())
+    showMenu()
+    root.deiconify()
 
     root.mainloop()
