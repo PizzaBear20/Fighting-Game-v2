@@ -4,18 +4,23 @@ import random
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from core.character import Character, ATTRIBUTE_CHOICES, cleanAttribute
+from core.character import Character, ATTRIBUTE_CHOICES, cleanAttribute, UNASSIGNED
 from core.fight import describeMove, moveCost
+from core.players import ownerChoices
 from core.save import saveGame, loadGame, SaveFileError
 from ui import theme
 from ui.customize import CustomizeWindow
 from ui.drawing import drawArena, drawFighter, darker, readable
 from ui.fight import FightWindow
+from ui.players import PlayersWindow
 
 MAX_NAME_LENGTH = 16
 
 # Dictionary of name -> Character
 characters = {}
+
+# Player names (the brothers who own the fighters)
+players = []
 
 # History list (oldest first)
 history = []
@@ -27,16 +32,17 @@ selectedName = None
 # ---------- saving and loading ----------
 
 def save():
-    saveGame(characters, history)
+    saveGame(characters, players, history)
 
 def load():
     try:
-        loadedCharacters, loadedHistory = loadGame()
+        loadedCharacters, loadedPlayers, loadedHistory = loadGame()
     except SaveFileError as error:
         messagebox.showwarning("Save file problem", f"Your save file couldn't be read ({error}).\n\n"
                                f"It was renamed to {os.path.basename(error.brokenFile)} and a new game was started.")
         return
     characters.update(loadedCharacters)
+    players.extend(loadedPlayers)
     history.extend(loadedHistory)
 
 
@@ -67,14 +73,27 @@ def selectCharacter(name):
 # ---------- roster (left) ----------
 
 ROW_HEIGHT = 76
+ALL_PLAYERS = "All players"
+
+# The ranked names that pass the roster's player filter
+def visibleNames():
+    owner = rosterFilter.get()
+    if owner == ALL_PLAYERS:
+        return rankedNames()
+    return [name for name in rankedNames() if characters[name].owner == owner]
 
 def drawRoster():
     rosterCanvas.delete("all")
     width = int(rosterCanvas.cget("width"))
-    names = rankedNames()
-    if not names:
+    ranks = rankedNames()
+    names = visibleNames()
+    if not characters:
         rosterCanvas.create_text(width / 2, 60, text="No fighters yet.\nCreate one below!", fill=theme.MUTED,
                                  font=theme.BODY_FONT, justify="center")
+    elif not names:
+        message = "No unassigned fighters." if rosterFilter.get() == UNASSIGNED else f"{rosterFilter.get()} has no fighters yet."
+        rosterCanvas.create_text(width / 2, 60, text=message, fill=theme.MUTED, font=theme.BODY_FONT,
+                                 justify="center", width=width - 24)
     for index, name in enumerate(names):
         character = characters[name]
         top = index * ROW_HEIGHT
@@ -84,17 +103,19 @@ def drawRoster():
         if selected:
             rosterCanvas.create_rectangle(0, top, 4, top + ROW_HEIGHT - 2, fill=readable(character.look["bodyColor"]), outline="")
         drawFighter(rosterCanvas, 44, top + 68, character.look, scale=0.42, tag="mini", shadow=darker(background, 0.25))
-        rosterCanvas.create_text(86, top + 27, text=name, anchor="w", fill=theme.TEXT, font=theme.BOLD_FONT)
-        details = f"#{index + 1}  ·  Power {character.powerLevel()}"
+        rosterCanvas.create_text(86, top + 20, text=name, anchor="w", fill=theme.TEXT, font=theme.BOLD_FONT)
+        details = f"#{ranks.index(name) + 1}  ·  Power {character.powerLevel()}"
         if character.specialMoves:
             details += f"  ·  ★{len(character.specialMoves)}"
-        rosterCanvas.create_text(86, top + 49, text=details, anchor="w", fill=theme.MUTED, font=theme.SMALL_FONT)
+        rosterCanvas.create_text(86, top + 40, text=details, anchor="w", fill=theme.MUTED, font=theme.SMALL_FONT)
+        ownerColor = theme.MUTED if character.owner == UNASSIGNED else theme.BLUE
+        rosterCanvas.create_text(86, top + 58, text=f"👤 {character.owner}", anchor="w", fill=ownerColor, font=theme.SMALL_FONT)
         rosterCanvas.create_line(12, top + ROW_HEIGHT - 1, width - 12, top + ROW_HEIGHT - 1, fill=theme.BORDER)
     rosterCanvas.config(scrollregion=(0, 0, width, max(len(names) * ROW_HEIGHT, 1)))
 
 def rosterNameAt(event):
     index = int(rosterCanvas.canvasy(event.y) // ROW_HEIGHT)
-    names = rankedNames()
+    names = visibleNames()
     if 0 <= index < len(names):
         return names[index]
     return None
@@ -113,6 +134,13 @@ def onRosterDoubleClick(event):
 def onRosterScroll(event):
     rosterCanvas.yview_scroll(-1 * event.delta, "units")
 
+def onRosterFilterSelected(event=None):
+    # new fighters go to the player you're looking at
+    if rosterFilter.get() != ALL_PLAYERS:
+        newOwnerChoice.set(rosterFilter.get())
+    rosterCanvas.yview_moveto(0)
+    drawRoster()
+
 def onCreateCharacterClick(event=None):
     name = createCharacterEntry.get().strip()
     if name == "":
@@ -124,13 +152,38 @@ def onCreateCharacterClick(event=None):
     if name in characters:
         messagebox.showerror("Error", f"There is already a character named '{name}'")
         return
-    character = Character(name)
+    owner = newOwnerChoice.get()
+    character = Character(name, owner)
     character.stats()
     characters[name] = character
     createCharacterEntry.delete(0, tk.END)
+    # make sure the new fighter isn't hidden by the roster filter
+    if rosterFilter.get() not in (ALL_PLAYERS, owner):
+        rosterFilter.set(ALL_PLAYERS)
     selectCharacter(name)
     refreshAll()
-    setStatus(f"{name} joined the roster! Click Customize Look to change how they look.", theme.GREEN)
+    team = "" if owner == UNASSIGNED else f" for {owner}"
+    setStatus(f"{name} joined the roster{team}! Click Customize Look to change how they look.", theme.GREEN)
+
+
+# ---------- players ----------
+
+# Keeps the player dropdowns up to date. Anything set to a player who is gone goes back to a default
+def updatePlayerChoices():
+    owners = ownerChoices(players)
+    rosterFilter.config(values=[ALL_PLAYERS] + owners)
+    if rosterFilter.get() not in owners:
+        rosterFilter.set(ALL_PLAYERS)
+    newOwnerChoice.config(values=owners)
+    if newOwnerChoice.get() not in owners:
+        newOwnerChoice.set(owners[0])
+    ownerChoice.config(values=owners)
+
+def onPlayersClick():
+    def onChange(message):
+        refreshAll()
+        setStatus(message, theme.GREEN)
+    PlayersWindow(root, players, characters, onChange)
 
 
 # ---------- fighter card (middle) ----------
@@ -186,12 +239,16 @@ def updateCard():
     if character is None:
         nameLabel.config(text="No fighter selected", fg=theme.TEXT)
         subtitleLabel.config(text="Create a fighter to get started")
+        ownerChoice.set("")
+        ownerChoice.state(["disabled"])
         theme.setText(movesText, [])
         for button in cardButtons:
             button.state(["disabled"])
     else:
         nameLabel.config(text=character.name, fg=readable(character.look["bodyColor"]))
         subtitleLabel.config(text=f"Power Level {character.powerLevel()}  ·  Rank #{rankOf(character.name)} of {len(characters)}")
+        ownerChoice.set(character.owner)
+        ownerChoice.state(["!disabled", "readonly"])
         if character.specialMoves:
             lines = []
             for move in character.specialMoves:
@@ -213,6 +270,14 @@ def onCustomizeClick():
         refreshAll()
         setStatus(f"Saved {character.name}'s new look!", theme.GREEN)
     CustomizeWindow(root, character, onSave)
+
+def onOwnerSelected(event=None):
+    character = selectedCharacter()
+    if character is None or ownerChoice.get() == character.owner:
+        return
+    character.owner = ownerChoice.get()
+    refreshAll()
+    setStatus(f"{character.name} now belongs to {character.owner}.", theme.GREEN)
 
 def onTrainClick(times):
     character = selectedCharacter()
@@ -336,7 +401,9 @@ def updateHistory():
 # Redraws everything after something changes, then saves the game
 def refreshAll():
     fightCount = len(history)
-    countsLabel.config(text=f"{len(characters)} fighters  ·  {fightCount} fight{'s' if fightCount != 1 else ''}")
+    countsLabel.config(text=f"{len(players)} player{'s' if len(players) != 1 else ''}  ·  {len(characters)} fighters  ·  "
+                            f"{fightCount} fight{'s' if fightCount != 1 else ''}")
+    updatePlayerChoices()
     drawRoster()
     updateCard()
     updateFightChoices()
@@ -349,8 +416,8 @@ def refreshAll():
 # Builds the main window, loads the save and runs until the window is closed
 def run():
     # the callbacks above use these widgets, so they have to be globals
-    global root, countsLabel, rosterCanvas, createCharacterEntry, portraitCanvas, nameLabel, subtitleLabel, statsCanvas, \
-        movesText, customizeButton, deleteButton, trainAttribute, trainButton, trainTenButton, matchupCanvas, \
+    global root, countsLabel, rosterFilter, rosterCanvas, createCharacterEntry, newOwnerChoice, portraitCanvas, nameLabel, \
+        subtitleLabel, ownerChoice, statsCanvas, movesText, customizeButton, deleteButton, trainAttribute, trainButton, trainTenButton, matchupCanvas, \
         fighter1Choice, fighter2Choice, trainEveryoneTimes, trainEveryoneAttribute, historyText, statusLabel, selectedName
 
     root = tk.Tk()
@@ -362,29 +429,42 @@ def run():
     header.grid(row=0, column=0, columnspan=3, sticky="ew", padx=16, pady=(14, 6))
     tk.Label(header, text="FIGHTING GAME", bg=theme.BG, fg=theme.TEXT, font=theme.TITLE_FONT).pack(side="left")
     tk.Label(header, text="v2", bg=theme.BG, fg=theme.GOLD, font=(theme.FONT, 14, "bold")).pack(side="left", padx=(8, 0), pady=(8, 0))
+    ttk.Button(header, text="👥 Players", command=onPlayersClick).pack(side="right", padx=(12, 0))
     countsLabel = tk.Label(header, bg=theme.BG, fg=theme.MUTED, font=theme.BODY_FONT)
     countsLabel.pack(side="right")
 
     # roster
     rosterPanel, rosterBody = theme.panel(root, "Roster  ·  ranked by power")
     rosterPanel.grid(row=1, column=0, sticky="nsew", padx=(16, 8), pady=8)
-    rosterBody.rowconfigure(0, weight=1)
-    rosterCanvas = tk.Canvas(rosterBody, width=250, height=420, bg=theme.PANEL, highlightthickness=0, cursor="hand2")
-    rosterCanvas.grid(row=0, column=0, sticky="ns")
+    filterRow = tk.Frame(rosterBody, bg=theme.PANEL)
+    filterRow.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+    theme.label(filterRow, "Show", fg=theme.MUTED, font=theme.SMALL_FONT).pack(side="left", padx=(0, 8))
+    rosterFilter = ttk.Combobox(filterRow, state="readonly", width=10)
+    rosterFilter.set(ALL_PLAYERS)
+    rosterFilter.pack(side="left", fill="x", expand=True)
+    rosterFilter.bind("<<ComboboxSelected>>", onRosterFilterSelected)
+    rosterBody.rowconfigure(1, weight=1)
+    rosterCanvas = tk.Canvas(rosterBody, width=250, height=390, bg=theme.PANEL, highlightthickness=0, cursor="hand2")
+    rosterCanvas.grid(row=1, column=0, sticky="ns")
     rosterScroll = ttk.Scrollbar(rosterBody, orient="vertical", command=rosterCanvas.yview)
-    rosterScroll.grid(row=0, column=1, sticky="ns")
+    rosterScroll.grid(row=1, column=1, sticky="ns")
     rosterCanvas.config(yscrollcommand=rosterScroll.set)
     rosterCanvas.bind("<Button-1>", onRosterClick)
     rosterCanvas.bind("<Double-Button-1>", onRosterDoubleClick)
     rosterCanvas.bind("<MouseWheel>", onRosterScroll)
 
-    theme.label(rosterBody, "NEW FIGHTER", fg=theme.MUTED, font=theme.HEADING_FONT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(12, 4))
+    theme.label(rosterBody, "NEW FIGHTER", fg=theme.MUTED, font=theme.HEADING_FONT).grid(row=2, column=0, columnspan=2, sticky="w", pady=(12, 4))
     createRow = tk.Frame(rosterBody, bg=theme.PANEL)
-    createRow.grid(row=2, column=0, columnspan=2, sticky="ew")
+    createRow.grid(row=3, column=0, columnspan=2, sticky="ew")
     createCharacterEntry = theme.entry(createRow, width=16)
     createCharacterEntry.pack(side="left", fill="x", expand=True, ipady=4)
     createCharacterEntry.bind("<Return>", onCreateCharacterClick)
     ttk.Button(createRow, text="Create", style="Accent.TButton", command=onCreateCharacterClick).pack(side="left", padx=(8, 0))
+    ownerRow = tk.Frame(rosterBody, bg=theme.PANEL)
+    ownerRow.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+    theme.label(ownerRow, "for", fg=theme.MUTED, font=theme.SMALL_FONT).pack(side="left", padx=(0, 8))
+    newOwnerChoice = ttk.Combobox(ownerRow, state="readonly", width=10)
+    newOwnerChoice.pack(side="left", fill="x", expand=True)
 
     # fighter card
     cardPanel, cardBody = theme.panel(root, "Fighter")
@@ -399,7 +479,13 @@ def run():
     nameLabel = theme.label(infoFrame, font=theme.NAME_FONT)
     nameLabel.pack(anchor="w")
     subtitleLabel = theme.label(infoFrame, fg=theme.MUTED, font=theme.SMALL_FONT)
-    subtitleLabel.pack(anchor="w", pady=(0, 12))
+    subtitleLabel.pack(anchor="w", pady=(0, 8))
+    ownerRow = tk.Frame(infoFrame, bg=theme.PANEL)
+    ownerRow.pack(anchor="w", pady=(0, 10))
+    theme.label(ownerRow, "Owner", fg=theme.MUTED, font=theme.SMALL_FONT).pack(side="left", padx=(0, 8))
+    ownerChoice = ttk.Combobox(ownerRow, state="readonly", width=14)
+    ownerChoice.pack(side="left")
+    ownerChoice.bind("<<ComboboxSelected>>", onOwnerSelected)
     statsCanvas = tk.Canvas(infoFrame, width=270, height=160, bg=theme.PANEL, highlightthickness=0)
     statsCanvas.pack(anchor="w")
 

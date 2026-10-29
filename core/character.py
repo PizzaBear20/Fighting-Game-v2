@@ -135,9 +135,14 @@ def applyPreset(look, preset):
     return newLook
 
 
+# Owner of fighters that don't belong to a player yet
+UNASSIGNED = "Unassigned"
+
+
 class Character:
-    def __init__(self, name):
+    def __init__(self, name, owner=UNASSIGNED):
         self.name = name
+        self.owner = owner
         self.specialMoves = []
         self.look = randomLook()
 
@@ -329,6 +334,7 @@ class Character:
     def toDict(self):
         return {
             "name": self.name,
+            "owner": self.owner,
             "health": self.health,
             "strength": self.strength,
             "speed": self.speed,
@@ -341,7 +347,7 @@ class Character:
 
     @staticmethod
     def fromDict(data):
-        character = Character(data["name"])
+        character = Character(data["name"], data.get("owner", UNASSIGNED))
         character.health = data["health"]
         character.strength = data["strength"]
         character.speed = data["speed"]
