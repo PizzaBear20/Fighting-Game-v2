@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from drawing import darker, lighter
+from ui.drawing import darker, lighter
 
 # Colors
 BG = "#151827"

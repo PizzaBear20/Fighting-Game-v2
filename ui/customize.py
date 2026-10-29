@@ -3,11 +3,11 @@ import random
 import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox
 
-import theme
-from character import (randomLook, randomColors, applyPreset, PRESETS, BUILDS, GLOVES, FACES, FACE_GEAR, HAIR_STYLES,
-                       FACIAL_HAIR, HEADWEAR, OUTFITS, PANTS, SHOES, CAPES, AURAS, COLOR_CHOICES, SKIN_TONES,
-                       HAIR_COLORS, EYE_COLORS)
-from drawing import drawArena, drawFighter, darker, mix, readable
+from core.character import (randomLook, randomColors, applyPreset, PRESETS, BUILDS, GLOVES, FACES, FACE_GEAR, HAIR_STYLES,
+                            FACIAL_HAIR, HEADWEAR, OUTFITS, PANTS, SHOES, CAPES, AURAS, COLOR_CHOICES, SKIN_TONES,
+                            HAIR_COLORS, EYE_COLORS)
+from ui import theme
+from ui.drawing import drawArena, drawFighter, darker, mix, readable
 
 
 # Each tab: (tab name, [(label, look key, choices, tile zoom), ...])
